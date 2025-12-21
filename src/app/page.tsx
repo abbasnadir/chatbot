@@ -1,9 +1,9 @@
-'use client'
+"use client";
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
-import Image from 'next/image';
-import { useAuth } from '@/components/AuthContext';
+import Image from "next/image";
+import { useAuth } from "@/components/AuthContext";
 
 interface Message {
   _id?: string;
@@ -14,7 +14,7 @@ interface Message {
 
 export default function Home() {
   const router = useRouter();
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState("");
   const [first, setFirst] = useState(true);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -35,7 +35,7 @@ export default function Home() {
   // Load existing messages when user signs in
   useEffect(() => {
     if (signedIn) {
-      console.log('User signed in, loading messages...'); // Debug log
+      console.log("User signed in, loading messages..."); // Debug log
       loadMessages();
     } else {
       setMessages([]); // Clear messages when signed out
@@ -45,17 +45,17 @@ export default function Home() {
 
   const loadMessages = async () => {
     try {
-      const response = await fetch('/api/app-info');
+      const response = await fetch("/api/app-info");
       if (response.ok) {
         const data = await response.json();
-        console.log('Loaded messages:', data.qna); // Debug log
+        console.log("Loaded messages:", data.qna); // Debug log
         setMessages(data.qna || []);
         setFirst(true); // Hide welcome message if there are existing messages
       } else {
-        console.error('Failed to load messages:', response.status);
+        console.error("Failed to load messages:", response.status);
       }
     } catch (error) {
-      console.error('Failed to load messages:', error);
+      console.error("Failed to load messages:", error);
     }
   };
 
@@ -70,14 +70,14 @@ export default function Home() {
     setFirst(true);
 
     // Clear input immediately
-    inputRef.current.value = '';
-    setValue('');
+    inputRef.current.value = "";
+    setValue("");
 
     try {
       // Get chatbot response
-      const res = await fetch('/api/chatbot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/chatbot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: msg }),
       });
 
@@ -88,48 +88,47 @@ export default function Home() {
         const errorMessage: Message = {
           question: msg,
           answer: `Error: ${data.error}`,
-          timeStamp: new Date()
+          timeStamp: new Date(),
         };
 
-        setMessages(prev => [...prev, errorMessage]);
+        setMessages((prev) => [...prev, errorMessage]);
         return;
       }
 
       // Create complete message with bot response
       const completeMessage: Message = {
         question: msg,
-        answer: typeof data === 'string' ? data : JSON.stringify(data),
-        timeStamp: new Date()
+        answer: typeof data === "string" ? data : JSON.stringify(data),
+        timeStamp: new Date(),
       };
 
       // Update UI immediately
-      setMessages(prev => [...prev, completeMessage]);
+      setMessages((prev) => [...prev, completeMessage]);
 
       // Save to database if user is signed in
       if (signedIn) {
-        const store = await fetch('/api/app-info', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const store = await fetch("/api/app-info", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             question: msg,
-            answer: completeMessage.answer
+            answer: completeMessage.answer,
           }),
         });
 
         if (!store.ok) {
-          console.error('Failed to save message:', await store.text());
+          console.error("Failed to save message:", await store.text());
         }
       }
-
     } catch (err) {
-      console.error('Request failed:', err);
+      console.error("Request failed:", err);
       const errorMessage: Message = {
         question: msg,
-        answer: 'Failed to get response. Please try again.',
-        timeStamp: new Date()
+        answer: "Failed to get response. Please try again.",
+        timeStamp: new Date(),
       };
 
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setLoading(false);
     }
@@ -138,26 +137,35 @@ export default function Home() {
   return (
     <div className="w-full h-screen flex flex-col items-center justify-center ">
       {/* Header */}
-      <div className={`flex-shrink-0 p-4 text-center ${first ? '' : 'hidden'}`}>
-        <h2 className={`text-4xl font-nunito ${signedIn ? 'pb-4' : ''}`}>
-          {!signedIn ? 'Get started on the go with AI' : `Welcome back ${userInfo?.name}!`}
+      <div className={`shrink-0 p-4 text-center ${first ? "" : "hidden"}`}>
+        <h2 className={`text-4xl font-nunito ${signedIn ? "pb-4" : ""}`}>
+          {!signedIn
+            ? "Get started on the go with AI"
+            : `Welcome back ${userInfo?.name}!`}
         </h2>
         {!signedIn && (
           <h3 className="text-xl pb-4">
-            Login to <u className="underline">Explore</u> more features and save your chats!
+            Login to <u className="underline">Explore</u> more features and save
+            your chats!
           </h3>
         )}
       </div>
 
       {/* Messages Container */}
-      <div className={"flex-1 w-full overflow-y-auto px-4 pb-4 " + first ? '' : 'hidden'}>
+      <div
+        className={
+          "flex-1 w-full overflow-y-auto px-4 pb-4 " + first ? "" : "hidden"
+        }
+      >
         <div className="max-w-4xl mx-auto space-y-4">
           {messages.map((message, index) => (
             <div key={index} className="space-y-2">
               {/* User Message */}
               <div className="flex justify-end">
-                <div className="bg-blue-500 text-white rounded-lg px-4 py-2 max-w-lg lg:max-w-xl break-words">
-                  <p className="break-words whitespace-pre-wrap overflow-wrap-anywhere">{message.question}</p>
+                <div className="bg-blue-500 text-white rounded-lg px-4 py-2 max-w-lg lg:max-w-xl wrap-break-word">
+                  <p className="wrap-break-word whitespace-pre-wrap overflow-wrap-anywhere">
+                    {message.question}
+                  </p>
                   <span className="text-xs opacity-75">
                     {new Date(message.timeStamp).toLocaleTimeString()}
                   </span>
@@ -167,8 +175,10 @@ export default function Home() {
               {/* Bot Response */}
               {message.answer && (
                 <div className="flex justify-start">
-                  <div className="bg-gray-200 text-black rounded-lg px-4 py-2 max-w-lg lg:max-w-xl break-words">
-                    <p className="break-words whitespace-pre-wrap overflow-wrap-anywhere">{JSON.parse(message.answer).response || message.answer}</p>
+                  <div className="bg-gray-200 text-black rounded-lg px-4 py-2 max-w-lg lg:max-w-xl wrap-break-word">
+                    <p className="wrap-break-word whitespace-pre-wrap overflow-wrap-anywhere">
+                      {JSON.parse(message.answer).response || message.answer}
+                    </p>
                     <span className="text-xs opacity-75">
                       {new Date(message.timeStamp).toLocaleTimeString()}
                     </span>
@@ -184,8 +194,14 @@ export default function Home() {
               <div className="bg-gray-200 text-black rounded-lg px-4 py-2">
                 <div className="flex space-x-1">
                   <div className="w-1 h-1 bg-black rounded-full animate-bounce"></div>
-                  <div className="w-1 h-1 bg-black rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                  <div className="w-1 h-1 bg-black rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                  <div
+                    className="w-1 h-1 bg-black rounded-full animate-bounce"
+                    style={{ animationDelay: "0.1s" }}
+                  ></div>
+                  <div
+                    className="w-1 h-1 bg-black rounded-full animate-bounce"
+                    style={{ animationDelay: "0.2s" }}
+                  ></div>
                 </div>
               </div>
             </div>
@@ -196,39 +212,41 @@ export default function Home() {
       </div>
 
       {/* Input Container */}
-      <div className="flex-shrink-0 p-4">
+      <div className="shrink-0 p-4">
         <div className="max-w-4xl mx-auto">
-          <form onSubmit={handleSubmit} className="relative">
-            <span className="p-[0.2rem] relative rounded-[1.75rem] bg-gradient-to-r from-[#ff1b6b] to-[#45caff] animate-gradient block">
-              <textarea
-                ref={inputRef}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit(e);
-                  }
-                }}
-                className="w-full disabled:bg-white text-black resize-none rounded-3xl p-3 pr-16 border-none outline-none scrollbar-thin"
-                placeholder="Type your message..."
-                rows={2}
-                cols={50}
-                disabled={loading}
-              />
-              <button
-                type="submit"
-                disabled={loading || !value.trim()}
-                className="absolute top-[0.2rem] right-4 h-[3rem] w-12 rounded-xl bg-white shadow-[-4px_0_3px_#fff] flex items-center justify-center disabled:opacity-50"
-              >
-                <Image
-                  className={`${value.length >= 1 && !loading ? 'invert-[.7] hover:cursor-pointer' : 'invert-[.4]'}`}
-                  src="/send.svg"
-                  width={35}
-                  height={35}
-                  alt="Send"
+          <form onSubmit={handleSubmit} className="relative ">
+            <span className="p-[0.2rem] relative rounded-[1.75rem] bg-linear-to-r from-[#ff1b6b] to-[#45caff] animate-gradient bg-white block">
+              <span className="p-[0.2rem] mb-2 relative rounded-[1.75rem] bg-white block">
+                <textarea
+                  ref={inputRef}
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmit(e);
+                    }
+                  }}
+                  className="w-full disabled:bg-white text-black resize-none rounded-3xl p-3 pr-16 border-none outline-none [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:bg-gray-400 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:cursor-pointer"
+                  placeholder="Type your message..."
+                  rows={2}
+                  cols={50}
+                  disabled={loading}
                 />
-              </button>
+                <button
+                  type="submit"
+                  disabled={loading || !value.trim()}
+                  className="absolute top-[0.2rem] right-4 h-12 w-12 rounded-xl bg-white shadow-[-4px_0_3px_#fff] flex items-center justify-center disabled:opacity-50"
+                >
+                  <Image
+                    className={`${value.length >= 1 && !loading ? "invert-[.7] hover:cursor-pointer" : "invert-[.4]"}`}
+                    src="/send.svg"
+                    width={35}
+                    height={35}
+                    alt="Send"
+                  />
+                </button>
+              </span>
             </span>
           </form>
         </div>
@@ -236,16 +254,16 @@ export default function Home() {
 
       {/* Sign in/up buttons for non-authenticated users */}
       {!signedIn && (
-        <div className="flex-shrink-0 flex justify-center gap-4 p-4">
+        <div className="shrink-0 flex justify-center gap-4 p-4">
           <button
-            className="bg-transparent hover:bg-white/30 text-white border border-white px-6 py-2 rounded-lg"
-            onClick={() => router.push('/login')}
+            className="bg-transparent cursor-pointer hover:bg-white/30 text-white border border-white px-6 py-2 rounded-lg"
+            onClick={() => router.push("/login")}
           >
             Sign in
           </button>
           <button
-            className="bg-transparent hover:bg-white/30 text-white border border-white px-6 py-2 rounded-lg"
-            onClick={() => router.push('/signup')}
+            className="bg-transparent cursor-pointer hover:bg-white/30 text-white border border-white px-6 py-2 rounded-lg"
+            onClick={() => router.push("/signup")}
           >
             Sign up
           </button>
