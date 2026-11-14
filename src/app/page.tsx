@@ -6,131 +6,113 @@ import Image from "next/image";
 import { useAuth } from "@/components/AuthContext";
 
 interface Message {
-  _id?: string;
-  question: string;
-  answer: string;
-  timeStamp: Date;
+  id?: string;
+  role: "user" | "model";
+  text: string;
+  createdAt: string;
+  failed?: boolean;
+}
+
+type StreamEvent =
+  | { event: "delta"; data: { text: string } }
+  | { event: "done"; data: { saved: boolean; messageId: string | null } }
+  | { event: "error"; data: { code: string; message: string } };
+
+// Reads server-sent events from a fetch response, one complete frame at a time.
+async function* readEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<StreamEvent> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffer += decoder.decode(value, { stream: true });
+    let end: number;
+    while ((end = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      const event = frame.match(/^event: (.*)$/m)?.[1];
+      const data = frame.match(/^data: (.*)$/m)?.[1];
+      if (event && data) yield { event, data: JSON.parse(data) } as StreamEvent;
+    }
+  }
 }
 
 export default function Home() {
   const router = useRouter();
   const [value, setValue] = useState("");
-  const [first, setFirst] = useState(true);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { signedIn, userInfo } = useAuth();
-
-  // Auto-scroll to bottom when new messages arrive
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  const first = messages.length === 0;
 
   useEffect(() => {
-    scrollToBottom();
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Load existing messages when user signs in
-  // Load existing messages when user signs in
+  // Load saved messages when the user signs in; clear them when they sign out.
   useEffect(() => {
-    if (signedIn) {
-      console.log("User signed in, loading messages..."); // Debug log
-      loadMessages();
-    } else {
-      setMessages([]); // Clear messages when signed out
-      setFirst(true); // Reset to show welcome message
+    if (!signedIn) {
+      setMessages([]);
+      return;
     }
+    (async () => {
+      try {
+        const response = await fetch("/api/app-info");
+        if (!response.ok) return;
+        const data: { messages: Message[] } = await response.json();
+        setMessages(data.messages ?? []);
+      } catch (error) {
+        console.error("Failed to load messages:", error);
+      }
+    })();
   }, [signedIn]);
 
-  const loadMessages = async () => {
-    try {
-      const response = await fetch("/api/app-info");
-      if (response.ok) {
-        const data = await response.json();
-        console.log("Loaded messages:", data.qna); // Debug log
-        setMessages(data.qna || []);
-        setFirst(true); // Hide welcome message if there are existing messages
-      } else {
-        console.error("Failed to load messages:", response.status);
-      }
-    } catch (error) {
-      console.error("Failed to load messages:", error);
-    }
-  };
+  // Applies a change to the reply that is currently streaming (always the last message).
+  const updateReply = (change: (reply: Message) => Message) =>
+    setMessages((prev) => [...prev.slice(0, -1), change(prev[prev.length - 1]!)]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-
-    if (!inputRef.current) return;
-    const msg = inputRef.current.value.trim();
-    if (!msg) return;
+    const msg = value.trim();
+    if (!msg || loading) return;
 
     setLoading(true);
-    setFirst(true);
-
-    // Clear input immediately
-    inputRef.current.value = "";
     setValue("");
+    const now = new Date().toISOString();
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", text: msg, createdAt: now },
+      { role: "model", text: "", createdAt: now },
+    ]);
 
     try {
-      // Get chatbot response
       const res = await fetch("/api/chatbot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: msg }),
       });
 
-      const data = await res.json();
-
-      if (data.error) {
-        // Handle error response
-        const errorMessage: Message = {
-          question: msg,
-          answer: `Error: ${data.error}`,
-          timeStamp: new Date(),
-        };
-
-        setMessages((prev) => [...prev, errorMessage]);
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => null);
+        const text = data?.error?.message ?? "Failed to get a response. Please try again.";
+        updateReply((reply) => ({ ...reply, text, failed: true }));
         return;
       }
 
-      // Create complete message with bot response
-      const completeMessage: Message = {
-        question: msg,
-        answer: typeof data === "string" ? data : JSON.stringify(data),
-        timeStamp: new Date(),
-      };
-
-      // Update UI immediately
-      setMessages((prev) => [...prev, completeMessage]);
-
-      // Save to database if user is signed in
-      if (signedIn) {
-        const store = await fetch("/api/app-info", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            question: msg,
-            answer: completeMessage.answer,
-          }),
-        });
-
-        if (!store.ok) {
-          console.error("Failed to save message:", await store.text());
-        }
+      for await (const ev of readEvents(res.body)) {
+        if (ev.event === "delta") updateReply((reply) => ({ ...reply, text: reply.text + ev.data.text }));
+        else if (ev.event === "error") updateReply((reply) => ({ ...reply, text: `${reply.text}\n\n${ev.data.message}`.trim(), failed: true }));
+        else if (ev.event === "done" && ev.data.messageId) updateReply((reply) => ({ ...reply, id: ev.data.messageId! }));
       }
     } catch (err) {
       console.error("Request failed:", err);
-      const errorMessage: Message = {
-        question: msg,
-        answer: "Failed to get response. Please try again.",
-        timeStamp: new Date(),
-      };
-
-      setMessages((prev) => [...prev, errorMessage]);
+      updateReply((reply) => ({ ...reply, text: "Failed to get a response. Please try again.", failed: true }));
     } finally {
       setLoading(false);
+      inputRef.current?.focus();
     }
   }
 
@@ -139,74 +121,42 @@ export default function Home() {
       {/* Header */}
       <div className={`shrink-0 p-4 text-center ${first ? "" : "hidden"}`}>
         <h2 className={`text-4xl font-nunito ${signedIn ? "pb-4" : ""}`}>
-          {!signedIn
-            ? "Get started on the go with AI"
-            : `Welcome back ${userInfo?.name}!`}
+          {!signedIn ? "Get started on the go with AI" : `Welcome back ${userInfo?.name}!`}
         </h2>
         {!signedIn && (
           <h3 className="text-xl pb-4">
-            Login to <u className="underline">Explore</u> more features and save
-            your chats!
+            Login to <u className="underline">Explore</u> more features and save your chats!
           </h3>
         )}
       </div>
 
       {/* Messages Container */}
-      <div
-        className={
-          "flex-1 w-full overflow-y-auto px-4 pb-4 " + first ? "" : "hidden"
-        }
-      >
+      <div className={`flex-1 w-full overflow-y-auto px-4 pb-4 ${first ? "hidden" : ""}`}>
         <div className="max-w-4xl mx-auto space-y-4">
-          {messages.map((message, index) => (
-            <div key={index} className="space-y-2">
-              {/* User Message */}
-              <div className="flex justify-end">
-                <div className="bg-blue-500 text-white rounded-lg px-4 py-2 max-w-lg lg:max-w-xl wrap-break-word">
-                  <p className="wrap-break-word whitespace-pre-wrap overflow-wrap-anywhere">
-                    {message.question}
-                  </p>
-                  <span className="text-xs opacity-75">
-                    {new Date(message.timeStamp).toLocaleTimeString()}
-                  </span>
+          {messages.map((message, index) => {
+            const mine = message.role === "user";
+            const streaming = loading && index === messages.length - 1;
+            return (
+              <div key={message.id ?? index} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                <div
+                  className={`rounded-lg px-4 py-2 max-w-lg lg:max-w-xl wrap-break-word ${
+                    mine ? "bg-blue-500 text-white" : message.failed ? "bg-red-100 text-red-900" : "bg-gray-200 text-black"
+                  }`}
+                >
+                  {streaming && !message.text ? (
+                    <div className="flex space-x-1 py-2">
+                      <div className="w-1 h-1 bg-black rounded-full animate-bounce"></div>
+                      <div className="w-1 h-1 bg-black rounded-full animate-bounce" style={{ animationDelay: "0.1s" }}></div>
+                      <div className="w-1 h-1 bg-black rounded-full animate-bounce" style={{ animationDelay: "0.2s" }}></div>
+                    </div>
+                  ) : (
+                    <p className="wrap-break-word whitespace-pre-wrap overflow-wrap-anywhere">{message.text}</p>
+                  )}
+                  <span className="text-xs opacity-75">{new Date(message.createdAt).toLocaleTimeString()}</span>
                 </div>
               </div>
-
-              {/* Bot Response */}
-              {message.answer && (
-                <div className="flex justify-start">
-                  <div className="bg-gray-200 text-black rounded-lg px-4 py-2 max-w-lg lg:max-w-xl wrap-break-word">
-                    <p className="wrap-break-word whitespace-pre-wrap overflow-wrap-anywhere">
-                      {JSON.parse(message.answer).response || message.answer}
-                    </p>
-                    <span className="text-xs opacity-75">
-                      {new Date(message.timeStamp).toLocaleTimeString()}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-
-          {/* Loading indicator */}
-          {loading && (
-            <div className="flex justify-start">
-              <div className="bg-gray-200 text-black rounded-lg px-4 py-2">
-                <div className="flex space-x-1">
-                  <div className="w-1 h-1 bg-black rounded-full animate-bounce"></div>
-                  <div
-                    className="w-1 h-1 bg-black rounded-full animate-bounce"
-                    style={{ animationDelay: "0.1s" }}
-                  ></div>
-                  <div
-                    className="w-1 h-1 bg-black rounded-full animate-bounce"
-                    style={{ animationDelay: "0.2s" }}
-                  ></div>
-                </div>
-              </div>
-            </div>
-          )}
-
+            );
+          })}
           <div ref={messagesEndRef} />
         </div>
       </div>
@@ -227,6 +177,7 @@ export default function Home() {
                       handleSubmit(e);
                     }
                   }}
+                  maxLength={4000}
                   className="w-full disabled:bg-white text-black resize-none rounded-3xl p-3 pr-16 border-none outline-none [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:bg-gray-400 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:cursor-pointer"
                   placeholder="Type your message..."
                   rows={2}

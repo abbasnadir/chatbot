@@ -1,120 +1,33 @@
-import { auth } from '@/app/auth';
 import { NextResponse } from 'next/server';
-import { connectDB } from '@/db/connect';
-import { AppInfo } from '@/db/appInfo';
-import { User } from '@/db/userInfo';
+import { backendFetch, currentCaller } from '@/lib/backend';
 
-export async function GET() {
-  const session = await auth();
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+// Chat history lives in the chatbot backend now; these routes forward the signed-in
+// user's requests to it. The backend saves each turn itself once the reply completes.
+
+async function forward(path: string, init: RequestInit = {}) {
+  const caller = await currentCaller();
+  if (caller.guest) {
+    return NextResponse.json({ error: { code: 'UNAUTHORIZED', message: 'Sign in to keep a chat history' } }, { status: 401 });
   }
-
-  await connectDB();
-
-  const user = await User.findOne({ email: session.user.email });
-  if (!user) {
-    return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  try {
+    const upstream = await backendFetch(path, caller, init);
+    return new NextResponse(upstream.body, {
+      status: upstream.status,
+      headers: { 'Content-Type': upstream.headers.get('Content-Type') ?? 'application/json' },
+    });
+  } catch (err) {
+    console.error('Chatbot backend unreachable:', err);
+    return NextResponse.json(
+      { error: { code: 'BACKEND_UNAVAILABLE', message: 'The chatbot is waking up or offline. Try again in a moment.' } },
+      { status: 503 },
+    );
   }
-
-  const appInfo = await AppInfo.findOne({ userId: user._id }).sort({ 'qna.timeStamp': 1 });
-
-  if (!appInfo) {
-    return NextResponse.json({ qna: [] });
-  }
-
-  return NextResponse.json({
-    id: appInfo._id.toString(),
-    qna: appInfo.qna.sort((a: { timeStamp: string | number | Date; }, b: { timeStamp: string | number | Date; }) => new Date(a.timeStamp).getTime() - new Date(b.timeStamp).getTime()),
-  });
 }
 
-export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  try {
-    const body = await req.json();
-    const { question, answer } = body;
-    
-    if (!question || typeof question !== 'string') {
-      return NextResponse.json({ 
-        error: 'Question must be a valid string' 
-      }, { status: 400 });
-    }
-
-    if (!answer) {
-      return NextResponse.json({ 
-        error: 'Answer is required' 
-      }, { status: 400 });
-    }
-
-    let answerString: string;
-    if (typeof answer === 'string') {
-      answerString = answer.trim();
-    } else {
-      answerString = JSON.stringify(answer);
-    }
-
-    await connectDB();
-
-    const user = await User.findOne({ email: session.user.email });
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    const newQnA = {
-      question: question.trim(),
-      answer: answerString,
-      timeStamp: new Date()
-    };
-
-    const result = await AppInfo.findOneAndUpdate(
-      { userId: user._id },
-      { 
-        $push: { qna: newQnA },
-        $setOnInsert: { userId: user._id }
-      },
-      { 
-        upsert: true, 
-        new: true 
-      }
-    );
-
-    return NextResponse.json({ 
-      success: true,
-      message: newQnA,
-      qnaId: result.qna[result.qna.length - 1]._id 
-    });
-
-  } catch (error) {
-    console.error('POST /api/app-info error:', error);
-    return NextResponse.json({ 
-      error: 'Invalid request' 
-    }, { status: 400 });
-  }
+export async function GET() {
+  return forward('/chat/history?limit=100');
 }
 
 export async function DELETE() {
-  const session = await auth();
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  await connectDB();
-
-  const user = await User.findOne({ email: session.user.email });
-  if (!user) {
-    return NextResponse.json({ error: 'User not found' }, { status: 404 });
-  }
-
-  // Clear all messages for this user
-  await AppInfo.updateOne(
-    { userId: user._id },
-    { $set: { qna: [] } }
-  );
-
-  return NextResponse.json({ success: true });
+  return forward('/chat/history', { method: 'DELETE' });
 }
