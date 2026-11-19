@@ -131,7 +131,7 @@ export default function Home() {
       </div>
 
       {/* Messages Container */}
-      <div className={`flex-1 w-full overflow-y-auto px-4 pb-4 ${first ? "hidden" : ""}`}>
+      <div className={`flex-1 w-full overflow-y-auto px-4 pt-24 pb-4 ${first ? "hidden" : ""}`}>
         <div className="max-w-4xl mx-auto space-y-4">
           {messages.map((message, index) => {
             const mine = message.role === "user";
