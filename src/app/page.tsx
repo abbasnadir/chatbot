@@ -43,6 +43,7 @@ export default function Home() {
   const [value, setValue] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { signedIn, userInfo } = useAuth();
@@ -53,21 +54,30 @@ export default function Home() {
   }, [messages]);
 
   // Load saved messages when the user signs in; clear them when they sign out.
+  // Sending waits for this load, so the saved history never replaces a message sent meanwhile.
   useEffect(() => {
     if (!signedIn) {
       setMessages([]);
+      setHistoryLoading(false);
       return;
     }
+    let cancelled = false;
+    setHistoryLoading(true);
     (async () => {
       try {
         const response = await fetch("/api/app-info");
         if (!response.ok) return;
         const data: { messages: Message[] } = await response.json();
-        setMessages(data.messages ?? []);
+        if (!cancelled) setMessages(data.messages ?? []);
       } catch (error) {
         console.error("Failed to load messages:", error);
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [signedIn]);
 
   // Applies a change to the reply that is currently streaming (always the last message).
@@ -77,7 +87,7 @@ export default function Home() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const msg = value.trim();
-    if (!msg || loading) return;
+    if (!msg || loading || historyLoading) return;
 
     setLoading(true);
     setValue("");
@@ -179,18 +189,18 @@ export default function Home() {
                   }}
                   maxLength={4000}
                   className="w-full disabled:bg-white text-black resize-none rounded-3xl p-3 pr-16 border-none outline-none [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:bg-gray-400 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:cursor-pointer"
-                  placeholder="Type your message..."
+                  placeholder={historyLoading ? "Loading your chat..." : "Type your message..."}
                   rows={2}
                   cols={50}
                   disabled={loading}
                 />
                 <button
                   type="submit"
-                  disabled={loading || !value.trim()}
+                  disabled={loading || historyLoading || !value.trim()}
                   className="absolute top-[0.2rem] right-4 h-12 w-12 rounded-xl bg-white shadow-[-4px_0_3px_#fff] flex items-center justify-center disabled:opacity-50"
                 >
                   <Image
-                    className={`${value.length >= 1 && !loading ? "invert-[.7] hover:cursor-pointer" : "invert-[.4]"}`}
+                    className={`${value.length >= 1 && !loading && !historyLoading ? "invert-[.7] hover:cursor-pointer" : "invert-[.4]"}`}
                     src="/send.svg"
                     width={35}
                     height={35}
