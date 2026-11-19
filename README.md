@@ -20,7 +20,7 @@ A chat app with sign-in and saved conversations. Replies stream in from Google G
 1. **Accounts.** `/signup` posts to `src/app/api/signup/route.ts`, which stores the user in MongoDB through Mongoose with a bcrypt hash. `/login` uses the NextAuth credentials provider in `src/app/auth.ts`.
 2. **Sending a message.** `src/app/page.tsx` posts to `/api/chatbot`. That route asks `src/lib/backend.ts` who the caller is, signs an HS256 token for them with `jose` (issuer `chatbot-web`, audience `chatbot-backend`, five minutes), and calls the backend’s `POST /chat`.
 3. **Streaming.** The backend answers with server-sent events (`delta`, then `done` or `error`). The route returns that body unchanged, and the page reads it frame by frame and appends each `delta` to the reply bubble.
-4. **History.** When a user signs in, the page loads `/api/app-info`, which forwards to the backend’s `GET /chat/history?limit=100` (guests get a 401 from this route and start with an empty chat). The backend saves each turn itself once the reply is complete, so this app never writes chat messages.
+4. **History.** When a user signs in, the page loads `/api/app-info`, which forwards to the backend’s `GET /chat/history?limit=100` (guests get a 401 from this route and start with an empty chat). The send button stays disabled until the history has loaded, so a reply that is still streaming is never replaced by it. The backend saves each turn itself once the reply is complete, so this app never writes chat messages.
 
 ## Run it locally
 
